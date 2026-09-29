@@ -177,7 +177,7 @@
         <input type="file" id="pdf-upload" accept="application/pdf" multiple />
         
         <!-- Interactive Preview Canvas -->
-        <canvas id="preview-canvas" width="600" height="600" aria-label="QR Code Preview"></canvas>
+        <canvas id="preview-canvas" width="500" height="500" aria-label="QR Code Preview"></canvas>
         <div id="filename"></div>
         
         <div class="buttons">
@@ -459,9 +459,9 @@
                 croppedCtx.fillRect(0, 0, cropWidth, cropHeight);
                 croppedCtx.drawImage(canvasPdf, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
-                // Fixed back strictly to 600x600px dimensions
-                const MAX_SIZE = 600;
-                const scale = Math.min(MAX_SIZE / cropWidth, (MAX_SIZE - 140) / cropHeight, 1);
+                // Fixed back strictly to 500x500px dimensions
+                const MAX_SIZE = 500;
+                const scale = Math.min(MAX_SIZE / cropWidth, (MAX_SIZE - 120) / cropHeight, 1);
 
                 const finalCanvas = document.createElement('canvas');
                 finalCanvas.width = MAX_SIZE;
@@ -476,27 +476,27 @@
                 const newWidth = cropWidth * scale;
                 const newHeight = cropHeight * scale;
                 const offsetX = (MAX_SIZE - newWidth) / 2;
-                const offsetY = 20;
+                const offsetY = 15;
 
                 finalCtx.drawImage(croppedCanvas, 0, 0, cropWidth, cropHeight, offsetX, offsetY, newWidth, newHeight);
 
-                // Render balanced legible text size (~22px bold) fitting cleanly inside the 600x600 frame
+                // Render balanced legible text size (~18-20px bold) fitting cleanly inside the 500x500 frame
                 finalCtx.fillStyle = '#000000';
                 finalCtx.textAlign = 'center';
-                let textY = offsetY + newHeight + 35;
+                let textY = offsetY + newHeight + 28;
 
                 if (merchantName) {
-                    finalCtx.font = 'bold 22px sans-serif';
+                    finalCtx.font = 'bold 18px sans-serif';
                     finalCtx.fillText(`MERCHANT NAME: ${merchantName.toUpperCase()}`, MAX_SIZE / 2, textY);
-                    textY += 32;
+                    textY += 26;
                 }
                 if (merchantId) {
-                    finalCtx.font = 'bold 22px sans-serif';
+                    finalCtx.font = 'bold 18px sans-serif';
                     finalCtx.fillText(`MERCHANT ID: ${merchantId}`, MAX_SIZE / 2, textY);
-                    textY += 32;
+                    textY += 26;
                 }
                 if (qrId) {
-                    finalCtx.font = 'bold 22px sans-serif';
+                    finalCtx.font = 'bold 18px sans-serif';
                     finalCtx.fillText(`QR ID : ${qrId}`, MAX_SIZE / 2, textY);
                 }
 
