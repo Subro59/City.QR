@@ -71,13 +71,6 @@
             text-shadow: 0 1px 2px rgba(0,0,0,0.1);
         }
 
-        /* Increased text size to 50px for extracted identification elements */
-        .pdf-section .extracted-info-label {
-            font-size: 50px;
-            font-weight: 700;
-            color: var(--light-text);
-        }
-
         .pdf-section input[type="file"] {
             width: 280px;
             max-width: 90%;
@@ -208,39 +201,6 @@
         let processedItems = [];
         let currentIndex = 0;
 
-        // Helper function to extract Merchant ID from PDF text items
-        async function extractMerchantId(pdf) {
-            let fullText = '';
-            // Loop through all pages to search for MERCHANT ID text
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const textContent = await page.getTextContent();
-                const pageStrings = textContent.items.map(item => item.str);
-                fullText += ' ' + pageStrings.join(' ');
-            }
-
-            // Clean up multiple spaces
-            fullText = fullText.replace(/\s+/g, ' ');
-
-            // Try matching patterns like "MERCHANT ID", "MID", or "Merchant Code" followed by an alphanumeric string
-            // Examples: "Merchant ID : 12345678", "MID: ABC12345", "Merchant ID: ABC-123"
-            const patterns = [
-                /merchant\s*id\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
-                /\bmid\b\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
-                /merchant\s*code\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i
-            ];
-
-            for (const pattern of patterns) {
-                const match = fullText.match(pattern);
-                if (match && match[1]) {
-                    // Sanitize the found ID to be safe for filenames
-                    return match[1].trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-                }
-            }
-
-            return null;
-        }
-
         inputPdf.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -362,32 +322,6 @@
             link.click();
         }
 
-        // Helper function to extract Merchant ID from a single page's text content
-        async function extractMerchantIdFromPage(page, file, pageNum, numPages) {
-            const textContent = await page.getTextContent();
-            const pageStrings = textContent.items.map(item => item.str);
-            const fullText = pageStrings.join(' ').replace(/\s+/g, ' ');
-
-            const patterns = [
-                /merchant\s*id\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
-                /\bmid\b\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
-                /merchant\s*code\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
-                /qr\s*id\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
-                /merchant\s*name\s*[:#-]?\s*([a-zA-Z0-9_\s-]{3,40})/i
-            ];
-
-            for (const pattern of patterns) {
-                const match = fullText.match(pattern);
-                if (match && match[1]) {
-                    return match[1].trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-                }
-            }
-
-            // Fallback if no specific ID pattern matches on this page
-            const baseFileName = file.name.replace(/\.pdf$/i, '');
-            return numPages > 1 ? `${baseFileName}_page_${pageNum}` : baseFileName;
-        }
-
         async function processPDF(file) {
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -407,7 +341,9 @@
                 let merchantId = '';
                 let qrId = '';
 
-                const nameMatch = fullText.match(/merchant\s*name\s*[:#-]?\s*([a-zA-Z0-9_\s-]{3,40})/i);
+                // Improved Regex to catch names with punctuation and logically stop at the next identifier
+                const nameMatch = fullText.match(/(?:merchant\s*name|shop\s*name|name)\s*[:#-]?\s*(.+?)(?=\s+(?:merchant\s*id|\bmid\b|qr\s*id|terminal\s*id|$))/i) 
+                               || fullText.match(/merchant\s*name\s*[:#-]?\s*([a-zA-Z0-9_\s\.,&'()/-]{2,60})/i);
                 if (nameMatch && nameMatch[1]) merchantName = nameMatch[1].trim();
 
                 const idMatch = fullText.match(/(?:merchant\s*id|\bmid\b)\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i);
@@ -441,7 +377,6 @@
                     }
                 }
 
-                // Trim bottom area slightly if text exists so we only crop the QR box itself cleanly
                 const padding = 60;
                 top = Math.max(0, top - padding);
                 left = Math.max(0, left - padding);
@@ -459,9 +394,9 @@
                 croppedCtx.fillRect(0, 0, cropWidth, cropHeight);
                 croppedCtx.drawImage(canvasPdf, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
-                // Fixed back strictly to 500x500px dimensions
+                // Fixed strictly to 500x500px dimensions with room for text lines at the bottom
                 const MAX_SIZE = 500;
-                const scale = Math.min(MAX_SIZE / cropWidth, (MAX_SIZE - 120) / cropHeight, 1);
+                const scale = Math.min(MAX_SIZE / cropWidth, (MAX_SIZE - 140) / cropHeight, 1);
 
                 const finalCanvas = document.createElement('canvas');
                 finalCanvas.width = MAX_SIZE;
@@ -476,27 +411,53 @@
                 const newWidth = cropWidth * scale;
                 const newHeight = cropHeight * scale;
                 const offsetX = (MAX_SIZE - newWidth) / 2;
-                const offsetY = 15;
+                const offsetY = 10;
 
                 finalCtx.drawImage(croppedCanvas, 0, 0, cropWidth, cropHeight, offsetX, offsetY, newWidth, newHeight);
 
-                // Render balanced legible text size (~18-20px bold) fitting cleanly inside the 500x500 frame
+                // Render text with auto-fitting/wrapping to stay safely inside 500px bounds
                 finalCtx.fillStyle = '#000000';
                 finalCtx.textAlign = 'center';
-                let textY = offsetY + newHeight + 28;
+                let textY = offsetY + newHeight + 22;
+
+                // Helper for text wrapping if name is very long
+                function drawWrappedText(text, x, y, maxWidth, lineHeight) {
+                    finalCtx.font = 'bold 15px sans-serif';
+                    const words = text.split(' ');
+                    let line = '';
+                    let lines = [];
+
+                    for(let n = 0; n < words.length; n++) {
+                        let testLine = line + words[n] + ' ';
+                        let metrics = finalCtx.measureText(testLine);
+                        let testWidth = metrics.width;
+                        if (testWidth > maxWidth && n > 0) {
+                            lines.push(line);
+                            line = words[n] + ' ';
+                        } else {
+                            line = testLine;
+                        }
+                    }
+                    lines.push(line);
+
+                    for(let k = 0; k < lines.length; k++) {
+                        finalCtx.fillText(lines[k].trim(), x, y + (k * lineHeight));
+                    }
+                    return lines.length * lineHeight;
+                }
 
                 if (merchantName) {
-                    finalCtx.font = 'bold 18px sans-serif';
-                    finalCtx.fillText(`MERCHANT NAME: ${merchantName.toUpperCase()}`, MAX_SIZE / 2, textY);
-                    textY += 26;
+                    const nameStr = `MERCHANT NAME: ${merchantName.toUpperCase()}`;
+                    const heightUsed = drawWrappedText(nameStr, MAX_SIZE / 2, textY, MAX_SIZE - 40, 18);
+                    textY += heightUsed + 4;
                 }
                 if (merchantId) {
-                    finalCtx.font = 'bold 18px sans-serif';
+                    finalCtx.font = 'bold 15px sans-serif';
                     finalCtx.fillText(`MERCHANT ID: ${merchantId}`, MAX_SIZE / 2, textY);
-                    textY += 26;
+                    textY += 20;
                 }
                 if (qrId) {
-                    finalCtx.font = 'bold 18px sans-serif';
+                    finalCtx.font = 'bold 15px sans-serif';
                     finalCtx.fillText(`QR ID : ${qrId}`, MAX_SIZE / 2, textY);
                 }
 
@@ -510,7 +471,6 @@
         }
 
         function toTextTrimHeight(h) {
-            // Helper to trim original printed label from bottom of bounding box if present
             return Math.floor(h * 0.12);
         }
     </script>
