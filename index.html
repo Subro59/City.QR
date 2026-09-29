@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF to PNG - Multi-Page QR Extractor</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf_viewer.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <style>
+        :root {
+            --primary-orange: #ff4d03;
+            --primary-orange-hover: #cc3d02;
+            --primary-black: #000000;
+            --primary-white: #ffffff;
+
+            --dark-bg: #222222;
+            --dark-section-bg: #333333;
+            --dark-element-bg: #444444;
+            --dark-border: #555555;
+
+            --light-text: #e0e0e0;
+            --medium-light-text: #bbbbbb;
+            --muted-text: #999999;
+
+            --shadow-light: 0 4px 10px rgba(0,0,0,0.3);
+            --shadow-medium: 0 8px 20px rgba(0,0,0,0.4);
+            --shadow-deep: 0 12px 30px rgba(0, 0, 0, 0.4);
+            --shadow-button-hover: 0 6px 14px rgba(0, 0, 0, 0.5);
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 40px 20px; 
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 40px;
+            background: var(--dark-bg);
+            color: var(--light-text);
+            line-height: 1.6;
+        }
+
+        .section-container {
+            border-radius: 20px;
+            padding: 30px;
+            background: var(--dark-section-bg);
+            box-shadow: var(--shadow-deep);
+            width: 90%;
+            max-width: 980px;
+            color: var(--light-text);
+        }
+
+        .pdf-section {
+            color: var(--light-text);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 20px;
+        }
+
+        .pdf-section h1 {
+            font-weight: 700;
+            color: var(--primary-orange);
+            margin-bottom: 10px;
+            user-select: none;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+
+        /* Increased text size to 50px for extracted identification elements */
+        .pdf-section .extracted-info-label {
+            font-size: 50px;
+            font-weight: 700;
+            color: var(--light-text);
+        }
+
+        .pdf-section input[type="file"] {
+            width: 280px;
+            max-width: 90%;
+            padding: 20px;
+            font-size: 16px;
+            border-radius: 12px;
+            border: 2px dashed var(--dark-border);
+            background: var(--dark-element-bg);
+            color: var(--medium-light-text);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            display: block;
+        }
+
+        .pdf-section input[type="file"].drag-over {
+            border-color: var(--primary-orange);
+            background: var(--dark-border);
+            transform: scale(1.02);
+        }
+
+        .pdf-section input[type="file"]:hover {
+            background: #555555;
+            border-color: #888888;
+        }
+
+        .pdf-section #preview-canvas {
+            margin: 0 auto;
+            width: 300px;
+            height: 300px;
+            object-fit: contain;
+            border-radius: 16px;
+            box-shadow: var(--shadow-medium);
+            background: var(--dark-element-bg);
+            border: 2px solid var(--dark-border);
+            transition: box-shadow 0.3s ease;
+        }
+
+        .pdf-section #filename {
+            font-weight: 600;
+            font-size: 18px;
+            color: var(--medium-light-text);
+            margin-top: 12px;
+            user-select: text;
+            max-width: 500px;
+            word-break: break-word;
+        }
+
+        .pdf-section .buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+
+        .pdf-section button {
+            border: none;
+            border-radius: 10px;
+            padding: 6px 14px;
+            font-size: 20px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: var(--shadow-light);
+            transition: background-color 0.3s, box-shadow 0.3s;
+            user-select: none;
+            color: var(--primary-black);
+            background: var(--primary-orange);
+        }
+
+        .pdf-section button:disabled {
+            background: var(--dark-border);
+            cursor: not-allowed;
+            box-shadow: none;
+            color: var(--muted-text);
+        }
+
+        .pdf-section button:not(:disabled):hover {
+            background: var(--primary-orange-hover);
+            box-shadow: var(--shadow-button-hover);
+        }
+
+        .pdf-section canvas.hidden-processor {
+            display: none;
+        }
+
+        @media (max-width: 540px) {
+            .pdf-section #preview-canvas {
+                width: 70vw;
+                height: 70vw;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="section-container pdf-section">
+        <h1>Merchant POS QR Generator</h1>
+        <input type="file" id="pdf-upload" accept="application/pdf" multiple />
+        
+        <!-- Interactive Preview Canvas -->
+        <canvas id="preview-canvas" width="600" height="600" aria-label="QR Code Preview"></canvas>
+        <div id="filename"></div>
+        
+        <div class="buttons">
+            <button id="prev-btn" disabled>◀️</button>
+            <button id="next-btn" disabled>▶️</button>
+            <button id="download-png" style="display:none;">⬇️ PNG</button>
+            <button id="download-zip" style="display:none;">📦 ZIP</button>
+        </div>
+        <!-- Hidden canvas used for multi-step PDF page parsing -->
+        <canvas id="canvasPdf" class="hidden-processor"></canvas>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        const inputPdf = document.getElementById('pdf-upload');
+        const previewCanvas = document.getElementById('preview-canvas');
+        const previewCtx = previewCanvas.getContext('2d');
+        const filenameDiv = document.getElementById('filename');
+        const canvasPdf = document.getElementById('canvasPdf');
+        const ctxPdf = canvasPdf.getContext('2d');
+        const btnPNG = document.getElementById('download-png');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const btnZIP = document.getElementById('download-zip'); 
+
+        let processedItems = [];
+        let currentIndex = 0;
+
+        // Helper function to extract Merchant ID from PDF text items
+        async function extractMerchantId(pdf) {
+            let fullText = '';
+            // Loop through all pages to search for MERCHANT ID text
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageStrings = textContent.items.map(item => item.str);
+                fullText += ' ' + pageStrings.join(' ');
+            }
+
+            // Clean up multiple spaces
+            fullText = fullText.replace(/\s+/g, ' ');
+
+            // Try matching patterns like "MERCHANT ID", "MID", or "Merchant Code" followed by an alphanumeric string
+            // Examples: "Merchant ID : 12345678", "MID: ABC12345", "Merchant ID: ABC-123"
+            const patterns = [
+                /merchant\s*id\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
+                /\bmid\b\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
+                /merchant\s*code\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i
+            ];
+
+            for (const pattern of patterns) {
+                const match = fullText.match(pattern);
+                if (match && match[1]) {
+                    // Sanitize the found ID to be safe for filenames
+                    return match[1].trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+                }
+            }
+
+            return null;
+        }
+
+        inputPdf.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            inputPdf.classList.add('drag-over');
+        });
+
+        inputPdf.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            inputPdf.classList.remove('drag-over');
+        });
+
+        inputPdf.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            inputPdf.classList.remove('drag-over');
+            
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                processFileList(e.dataTransfer.files);
+            }
+        });
+
+        inputPdf.addEventListener('change', async (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                processFileList(e.target.files);
+            }
+        });
+
+        async function processFileList(fileList) {
+            const files = Array.from(fileList).filter(f => f.type.includes('pdf'));
+            if (!files.length) return;
+
+            processedItems = [];
+            currentIndex = 0;
+            disableNavButtons(true);
+            btnPNG.style.display = 'none';
+            btnZIP.style.display = 'none'; 
+            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            filenameDiv.textContent = 'Processing PDFs...';
+
+            for (const file of files) {
+                const pageItems = await processPDF(file);
+                processedItems.push(...pageItems);
+            }
+
+            if (processedItems.length) {
+                showItem(0);
+                disableNavButtons(false);
+                btnZIP.style.display = 'inline-block'; 
+            } else {
+                filenameDiv.textContent = 'No valid PDF content found.';
+            }
+        }
+
+        function disableNavButtons(disable) {
+            prevBtn.disabled = disable || currentIndex === 0;
+            nextBtn.disabled = disable || currentIndex === processedItems.length - 1;
+        }
+
+        prevBtn.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex--;
+                showItem(currentIndex);
+                disableNavButtons(false);
+            }
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentIndex < processedItems.length - 1) {
+                currentIndex++;
+                showItem(currentIndex);
+                disableNavButtons(false);
+            }
+        });
+
+        function showItem(index) {
+            const item = processedItems[index];
+            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            previewCtx.drawImage(item.canvas, 0, 0);
+            filenameDiv.textContent = item.filename;
+            btnPNG.style.display = 'inline-block';
+        }
+
+        btnPNG.onclick = () => {
+            const item = processedItems[currentIndex];
+            const dataURL = item.canvas.toDataURL('image/png');
+            downloadImage(dataURL, item.filename);
+        };
+
+        btnZIP.onclick = async () => {
+            if (processedItems.length === 0) return;
+
+            const zip = new JSZip();
+            
+            processedItems.forEach(item => {
+                const dataURL = item.canvas.toDataURL('image/png');
+                const base64Data = dataURL.split(',')[1];
+                zip.file(item.filename, base64Data, { base64: true });
+            });
+
+            try {
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(zipBlob);
+                link.download = 'merchant_pos_qrs.zip'; 
+                document.body.appendChild(link); 
+                link.click();
+                document.body.removeChild(link); 
+                URL.revokeObjectURL(link.href); 
+            } catch (error) {
+                console.error("Error generating ZIP file:", error);
+            }
+        };
+
+        function downloadImage(dataURL, filename) {
+            const link = document.createElement('a');
+            link.href = dataURL;
+            link.download = filename;
+            link.click();
+        }
+
+        // Helper function to extract Merchant ID from a single page's text content
+        async function extractMerchantIdFromPage(page, file, pageNum, numPages) {
+            const textContent = await page.getTextContent();
+            const pageStrings = textContent.items.map(item => item.str);
+            const fullText = pageStrings.join(' ').replace(/\s+/g, ' ');
+
+            const patterns = [
+                /merchant\s*id\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
+                /\bmid\b\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
+                /merchant\s*code\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
+                /qr\s*id\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i,
+                /merchant\s*name\s*[:#-]?\s*([a-zA-Z0-9_\s-]{3,40})/i
+            ];
+
+            for (const pattern of patterns) {
+                const match = fullText.match(pattern);
+                if (match && match[1]) {
+                    return match[1].trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+                }
+            }
+
+            // Fallback if no specific ID pattern matches on this page
+            const baseFileName = file.name.replace(/\.pdf$/i, '');
+            return numPages > 1 ? `${baseFileName}_page_${pageNum}` : baseFileName;
+        }
+
+        async function processPDF(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            
+            const numPages = pdf.numPages;
+            const pageItems = [];
+
+            for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+
+                // Extract text contents to find details
+                const textContent = await page.getTextContent();
+                const pageStrings = textContent.items.map(item => item.str);
+                const fullText = pageStrings.join(' ').replace(/\s+/g, ' ');
+
+                let merchantName = '';
+                let merchantId = '';
+                let qrId = '';
+
+                const nameMatch = fullText.match(/merchant\s*name\s*[:#-]?\s*([a-zA-Z0-9_\s-]{3,40})/i);
+                if (nameMatch && nameMatch[1]) merchantName = nameMatch[1].trim();
+
+                const idMatch = fullText.match(/(?:merchant\s*id|\bmid\b)\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i);
+                if (idMatch && idMatch[1]) merchantId = idMatch[1].trim();
+
+                const qridMatch = fullText.match(/qr\s*id\s*[:#-]?\s*([a-zA-Z0-9_-]{3,30})/i);
+                if (qridMatch && qridMatch[1]) qrId = qridMatch[1].trim();
+
+                const finalFilenameId = merchantId || qrId || (numPages > 1 ? `${file.name.replace(/\.pdf$/i, '')}_page_${pageNum}` : file.name.replace(/\.pdf$/i, ''));
+                const sanitizedFilename = finalFilenameId.replace(/[^a-zA-Z0-9_-]/g, '_') + '.png';
+
+                const viewport = page.getViewport({ scale: 4 });
+                canvasPdf.width = viewport.width;
+                canvasPdf.height = viewport.height;
+                await page.render({ canvasContext: ctxPdf, viewport }).promise;
+
+                const imageData = ctxPdf.getImageData(0, 0, canvasPdf.width, canvasPdf.height);
+                const { data, width, height } = imageData;
+
+                let top = height, bottom = 0, left = width, right = 0;
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        const [r, g, b, a] = data.slice(i, i + 4);
+                        if (a > 0 && !(r > 240 && g > 240 && b > 240)) {
+                            if (y < top) top = y;
+                            if (y > bottom) bottom = y;
+                            if (x < left) left = x;
+                            if (x > right) right = x;
+                        }
+                    }
+                }
+
+                // Trim bottom area slightly if text exists so we only crop the QR box itself cleanly
+                const padding = 60;
+                top = Math.max(0, top - padding);
+                left = Math.max(0, left - padding);
+                bottom = Math.min(height, bottom - (toTextTrimHeight(bottom - top))); 
+                right = Math.min(width, right + padding);
+
+                const cropWidth = right - left;
+                const cropHeight = Math.max(10, bottom - top);
+
+                const croppedCanvas = document.createElement('canvas');
+                croppedCanvas.width = cropWidth;
+                croppedCanvas.height = cropHeight;
+                const croppedCtx = croppedCanvas.getContext('2d');
+                croppedCtx.fillStyle = "#ffffff";
+                croppedCtx.fillRect(0, 0, cropWidth, cropHeight);
+                croppedCtx.drawImage(canvasPdf, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+
+                // Fixed back strictly to 600x600px dimensions
+                const MAX_SIZE = 600;
+                const scale = Math.min(MAX_SIZE / cropWidth, (MAX_SIZE - 140) / cropHeight, 1);
+
+                const finalCanvas = document.createElement('canvas');
+                finalCanvas.width = MAX_SIZE;
+                finalCanvas.height = MAX_SIZE;
+                const finalCtx = finalCanvas.getContext('2d');
+                finalCtx.imageSmoothingEnabled = true;
+                finalCtx.imageSmoothingQuality = 'high';
+
+                finalCtx.fillStyle = '#ffffff';
+                finalCtx.fillRect(0, 0, MAX_SIZE, MAX_SIZE);
+
+                const newWidth = cropWidth * scale;
+                const newHeight = cropHeight * scale;
+                const offsetX = (MAX_SIZE - newWidth) / 2;
+                const offsetY = 20;
+
+                finalCtx.drawImage(croppedCanvas, 0, 0, cropWidth, cropHeight, offsetX, offsetY, newWidth, newHeight);
+
+                // Render balanced legible text size (~22px bold) fitting cleanly inside the 600x600 frame
+                finalCtx.fillStyle = '#000000';
+                finalCtx.textAlign = 'center';
+                let textY = offsetY + newHeight + 35;
+
+                if (merchantName) {
+                    finalCtx.font = 'bold 22px sans-serif';
+                    finalCtx.fillText(`MERCHANT NAME: ${merchantName.toUpperCase()}`, MAX_SIZE / 2, textY);
+                    textY += 32;
+                }
+                if (merchantId) {
+                    finalCtx.font = 'bold 22px sans-serif';
+                    finalCtx.fillText(`MERCHANT ID: ${merchantId}`, MAX_SIZE / 2, textY);
+                    textY += 32;
+                }
+                if (qrId) {
+                    finalCtx.font = 'bold 22px sans-serif';
+                    finalCtx.fillText(`QR ID : ${qrId}`, MAX_SIZE / 2, textY);
+                }
+
+                pageItems.push({
+                    canvas: finalCanvas,
+                    filename: sanitizedFilename
+                });
+            }
+
+            return pageItems;
+        }
+
+        function toTextTrimHeight(h) {
+            // Helper to trim original printed label from bottom of bounding box if present
+            return Math.floor(h * 0.12);
+        }
+    </script>
+</body>
+</html>
